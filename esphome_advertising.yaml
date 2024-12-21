@@ -1,0 +1,151 @@
+substitutions:
+  name: esp32-bluetooth-proxy
+  friendly_name: BLE Broadcast Proxy
+
+# ESP32 Basic Configuration
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: ""  // 填写ssid
+  password: "" // 填写wifi密码
+
+
+
+# Captive Portal Configuration
+captive_portal:
+
+# API and OTA Configuration
+api:
+  encryption:
+    key: ""  //32位
+
+web_server:
+
+ota:
+  platform: esphome
+
+# Logger Configuration
+logger:
+  level: INFO
+  baud_rate: 0
+
+# GPIO Output Configuration
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: board_led
+
+# Light Configuration
+light:
+  - platform: binary
+    name: "${friendly_name} LED"
+    output: board_led
+    id: status_led
+
+#LED Blink Script Configuration
+script:
+  - id: blink_led
+    then:
+      - light.turn_on: status_led
+      - delay: 100ms
+      - light.turn_off: status_led
+      - delay: 100ms
+      - light.turn_on: status_led
+      - delay: 100ms
+      - light.turn_off: status_led
+      - delay: 100ms
+
+# ESP32 BLE Configuration
+esp32_ble:
+  id: ble
+
+esp32_ble_tracker:
+
+# esp32_ble_server:
+  
+# bluetooth_proxy:
+#   active: true
+#   id: ble_proxy
+
+# Sensor Configuration
+sensor:
+  - platform: wifi_signal
+    name: "${friendly_name} WiFi Signal"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    update_interval: 60s
+
+  - platform: internal_temperature
+    name: "${friendly_name} Temperature"
+    update_interval: 60s
+
+#从mqtt订阅蓝牙广播
+mqtt:
+  broker: ""  // mqtt服务器地址
+  username: ""  // mqtt用户名
+  password: ""  // mqtt密码
+  on_message:
+    - topic: "esphome/ble_broadcast"
+      then:
+        - lambda: !lambda |-
+            if (!parse_json(x, [](const JsonObject &obj) -> bool {
+              int duration = obj.containsKey("duration") ? obj["duration"] : 600;
+              std::vector<uint8_t> company_id, manufacturer_data;
+
+              // 获取公司ID
+              if (obj.containsKey("company_id")) {
+                std::string cid_str = obj["company_id"];
+                if (cid_str.substr(0, 2) == "0x") {
+                  cid_str = cid_str.substr(2);
+                }
+                if (cid_str.length() == 4) {
+                  uint8_t high, low;
+                  sscanf(cid_str.substr(0, 2).c_str(), "%2hhx", &high);
+                  sscanf(cid_str.substr(2, 2).c_str(), "%2hhx", &low);
+                  company_id.push_back(low);
+                  company_id.push_back(high);
+                } else {
+                  return false;
+                }
+              }
+
+              // 获取厂商数据
+              if (obj.containsKey("manufacturer_data")) {
+                std::string mfr_data_str = obj["manufacturer_data"];
+                if (mfr_data_str.length() % 2 != 0) {
+                  return false;
+                }
+                for (size_t i = 0; i < mfr_data_str.length(); i += 2) {
+                  uint8_t byte;
+                  if (sscanf(mfr_data_str.substr(i, 2).c_str(), "%2hhx", &byte) != 1) {
+                    return false;
+                  }
+                  manufacturer_data.push_back(byte);
+                }
+              }
+
+              // 合并公司ID和厂商数据
+              std::vector<uint8_t> full_mfr_data(company_id);
+              full_mfr_data.insert(full_mfr_data.end(), manufacturer_data.begin(), manufacturer_data.end());
+
+              // 设置广播周期(毫秒)
+              id(ble).set_advertising_cycle_time(duration);
+
+              id(blink_led).execute();
+
+              // 开始广播
+              id(ble).advertising_set_manufacturer_data(full_mfr_data);
+
+              // 打印广播配置
+              ESP_LOGD("BLE", " - Duration: %d", duration);
+              ESP_LOGD("BLE", " - Company ID: %02X%02X", company_id[1], company_id[0]);
+              ESP_LOGD("BLE", " - Manufacturer Data: %s", manufacturer_data.c_str());
+              return true;
+            })) {
+            }
