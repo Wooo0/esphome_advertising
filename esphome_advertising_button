@@ -1,0 +1,102 @@
+substitutions:
+  name: esp32-bluetooth-proxy
+  friendly_name: BLE Broadcast Proxy
+
+# ESP32 Basic Configuration
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: ""  // 填写ssid
+  password: "" // 填写wifi密码
+
+
+
+# Captive Portal Configuration
+captive_portal:
+
+# API and OTA Configuration
+api:
+  encryption:
+    key: ""  //32位
+
+web_server:
+
+ota:
+  platform: esphome
+
+# Logger Configuration
+logger:
+  level: INFO
+  baud_rate: 0
+
+# GPIO Output Configuration
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: board_led
+
+# Light Configuration
+light:
+  - platform: binary
+    name: "${friendly_name} LED"
+    output: board_led
+    id: status_led
+
+#LED Blink Script Configuration
+script:
+  - id: blink_led
+    then:
+      - light.turn_on: status_led
+      - delay: 100ms
+      - light.turn_off: status_led
+      - delay: 100ms
+      - light.turn_on: status_led
+      - delay: 100ms
+      - light.turn_off: status_led
+      - delay: 100ms
+
+# ESP32 BLE Configuration
+esp32_ble:
+  id: ble
+
+esp32_ble_tracker:
+
+# esp32_ble_server:
+  
+# bluetooth_proxy:
+#   active: true
+#   id: ble_proxy
+
+# Sensor Configuration
+sensor:
+  - platform: wifi_signal
+    name: "${friendly_name} WiFi Signal"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    update_interval: 60s
+
+  - platform: internal_temperature
+    name: "${friendly_name} Temperature"
+    update_interval: 60s
+
+button:
+  - platform: template
+    name: XGIMI Projector Wakeup
+    icon: "mdi:projector"
+    on_press:
+      - repeat:
+          count: 3
+          then:
+            - lambda: |-
+                id(blink_led).execute();
+                id(ble).set_advertising_cycle_time(1000);
+                std::vector<uint8_t> data = {0x46, 0x00, 0x09, 0xDF, 0x80, 0x69, 0x9D, 0x1D, 0x60, 0xFF, 0xFF, 0xFF, 0x30, 0x43, 0x52, 0x4B, 0x54, 0x4D}; // 用手机或者ble_scan脚本抓取遥控器蓝牙广播数据
+                id(ble).advertising_set_manufacturer_data(data);
+                id(blink_led).execute();
+
